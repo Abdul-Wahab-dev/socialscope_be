@@ -1,0 +1,9 @@
+DROP TABLE IF EXISTS portfolio_items;
+DROP TABLE IF EXISTS rate_cards;
+DROP TABLE IF EXISTS social_stat_snapshots;
+DROP TABLE IF EXISTS social_accounts;
+DROP TABLE IF EXISTS creator_profiles;
+DROP TABLE IF EXISTS categories;
+DROP TYPE IF EXISTS deliverable_type;
+DROP TYPE IF EXISTS sync_status;
+DROP TYPE IF EXISTS social_platform;
