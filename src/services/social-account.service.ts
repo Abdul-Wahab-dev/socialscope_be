@@ -74,7 +74,7 @@ export class SocialAccountService {
       redirectUri: this.redirectUri(platform),
     });
     const stats = await provider.fetchStats(tokens.accessToken);
-
+    console.log(stats, "stats");
     const ownedByOther = await SocialAccount.findOne({
       where: {
         platform,
