@@ -1,4 +1,4 @@
-import type { SocialPlatform } from '../../types';
+import type { SocialPlatform } from "../../types";
 
 export interface OAuthTokens {
   accessToken: string;
@@ -7,6 +7,8 @@ export interface OAuthTokens {
   expiresAt?: Date | null;
   /** Some providers return the user id in the token response */
   platformUserId?: string;
+  /** Meta: app-scoped id of the user who logged in (matched by the data-deletion callback) */
+  ownerPlatformUserId?: string;
 }
 
 /** Provider-agnostic stats shape stored on social_accounts. */
@@ -27,11 +29,22 @@ export interface SocialProvider {
   readonly platform: SocialPlatform;
   /** true when client id / secret are configured */
   isConfigured(): boolean;
-  getAuthUrl(params: { state: string; redirectUri: string; userId: string }): string;
-  exchangeCode(params: { code: string; redirectUri: string }): Promise<OAuthTokens>;
+  getAuthUrl(params: {
+    state: string;
+    redirectUri: string;
+    userId: string;
+  }): string;
+  exchangeCode(params: {
+    code: string;
+    redirectUri: string;
+  }): Promise<OAuthTokens>;
   /** Returns new tokens if the provider supports refreshing, otherwise null. */
-  refreshTokens(tokens: { accessToken: string; refreshToken?: string | null }): Promise<OAuthTokens | null>;
+  refreshTokens(tokens: {
+    accessToken: string;
+    refreshToken?: string | null;
+  }): Promise<OAuthTokens | null>;
   fetchStats(accessToken: string): Promise<NormalizedStats>;
 }
 
-export const average = (nums: number[]): number => (nums.length ? Math.round(nums.reduce((a, b) => a + b, 0) / nums.length) : 0);
+export const average = (nums: number[]): number =>
+  nums.length ? Math.round(nums.reduce((a, b) => a + b, 0) / nums.length) : 0;

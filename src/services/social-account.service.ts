@@ -10,10 +10,21 @@ import { signOAuthState, verifyOAuthState } from "../libs/jwt";
 import { logger } from "../libs/logger";
 import { ApiError } from "../utils/api-error";
 import { round2 } from "../utils/helpers";
-import type { SocialPlatform } from "../types";
+import { isSelfReportedPlatform, type SocialPlatform } from "../types";
+import { parseFacebookProfileUrl } from "../utils/facebook-url";
 import { creatorService } from "./creator.service";
 
 const REFRESH_BEFORE_EXPIRY_MS = 24 * 3_600_000;
+
+export interface SelfReportedStatsInput {
+  profileUrl: string;
+  followers: number;
+  following?: number;
+  postsCount?: number;
+  avgViews?: number;
+  avgLikes: number;
+  avgComments: number;
+}
 
 export class SocialAccountService {
   redirectUri(platform: SocialPlatform) {
@@ -37,21 +48,13 @@ export class SocialAccountService {
       platform,
       nonce: crypto.randomUUID(),
     });
-
-    const url = provider.getAuthUrl({
-      state,
-      redirectUri: this.redirectUri(platform),
-      userId,
-    });
-    console.log(
-      "OAuth connect URL:",
-      url,
-      "state:",
-      state,
-      "redirectUri:",
-      this.redirectUri(platform)
-    );
-    return { url };
+    return {
+      url: provider.getAuthUrl({
+        state,
+        redirectUri: this.redirectUri(platform),
+        userId,
+      }),
+    };
   }
 
   /** Step 2 of OAuth: exchange code, pull stats, upsert the account. Returns the account. */
@@ -74,7 +77,7 @@ export class SocialAccountService {
       redirectUri: this.redirectUri(platform),
     });
     const stats = await provider.fetchStats(tokens.accessToken);
-    console.log(stats, "stats");
+
     const ownedByOther = await SocialAccount.findOne({
       where: {
         platform,
@@ -87,23 +90,32 @@ export class SocialAccountService {
         "This social account is already connected to another creator"
       );
 
-    const engagementRate = this.engagementRate(
-      stats.followers,
-      stats.avgLikes,
-      stats.avgComments
-    );
-    const values = {
+    const selfReported = isSelfReportedPlatform(platform);
+    const identity = {
       creatorProfileId: profile.id,
       platform,
       platformUserId: stats.platformUserId,
-      handle: stats.handle,
-      profileUrl: stats.profileUrl,
+      ownerPlatformUserId: tokens.ownerPlatformUserId ?? null,
       avatarUrl: stats.avatarUrl,
       accessTokenEnc: encrypt(tokens.accessToken),
       refreshTokenEnc: tokens.refreshToken
         ? encrypt(tokens.refreshToken)
         : null,
       tokenExpiresAt: tokens.expiresAt ?? null,
+      syncStatus: "ok" as const,
+      syncError: null,
+      lastSyncedAt: new Date(),
+    };
+    const engagementRate = this.engagementRate(
+      stats.followers,
+      stats.avgLikes,
+      stats.avgComments
+    );
+    const apiMetrics = {
+      statsSource: "api" as const,
+      statsReportedAt: null,
+      handle: stats.handle,
+      profileUrl: stats.profileUrl,
       followers: stats.followers,
       following: stats.following,
       postsCount: stats.postsCount,
@@ -111,9 +123,20 @@ export class SocialAccountService {
       avgLikes: stats.avgLikes,
       avgComments: stats.avgComments,
       engagementRate,
-      syncStatus: "ok" as const,
-      syncError: null,
-      lastSyncedAt: new Date(),
+    };
+    // Self-reported platforms start empty; the creator fills in their stats next
+    const emptyReportedMetrics = {
+      statsSource: "self_reported" as const,
+      statsReportedAt: null,
+      handle: stats.handle,
+      profileUrl: null,
+      followers: 0,
+      following: 0,
+      postsCount: 0,
+      avgViews: 0,
+      avgLikes: 0,
+      avgComments: 0,
+      engagementRate: 0,
     };
 
     const account = await sequelize.transaction(async (transaction) => {
@@ -121,19 +144,34 @@ export class SocialAccountService {
         where: { creatorProfileId: profile.id, platform },
         transaction,
       });
-      const saved = existing
-        ? await existing.update(values, { transaction })
-        : await SocialAccount.create(values, { transaction });
-      await SocialStatSnapshot.create(
-        {
-          socialAccountId: saved.id,
-          followers: stats.followers,
-          avgViews: stats.avgViews,
-          engagementRate,
-        },
-        { transaction }
-      );
-      return saved;
+      if (!selfReported) {
+        const values = { ...identity, ...apiMetrics };
+        const saved = existing
+          ? await existing.update(values, { transaction })
+          : await SocialAccount.create(values, { transaction });
+        await SocialStatSnapshot.create(
+          {
+            socialAccountId: saved.id,
+            followers: stats.followers,
+            avgViews: stats.avgViews,
+            engagementRate,
+          },
+          { transaction }
+        );
+        return saved;
+      }
+      // Reconnecting the same Facebook account keeps the stats the creator already entered
+      if (
+        existing &&
+        existing.platformUserId === stats.platformUserId &&
+        existing.statsSource === "self_reported"
+      ) {
+        return existing.update(identity, { transaction });
+      }
+      const values = { ...identity, ...emptyReportedMetrics };
+      return existing
+        ? existing.update(values, { transaction })
+        : SocialAccount.create(values, { transaction });
     });
 
     // Use the creator's first connected avatar if they haven't set one
@@ -165,6 +203,81 @@ export class SocialAccountService {
       );
     }
     return this.syncAccount(account, { throwOnError: true });
+  }
+
+  /**
+   * Creator-entered stats for platforms whose API doesn't share them (Facebook profiles).
+   * Shown with a "Self-reported" label; engagement rate is still computed by us.
+   */
+  async updateSelfReportedStats(
+    userId: string,
+    accountId: string,
+    input: SelfReportedStatsInput
+  ) {
+    const account = await this.findOwned(userId, accountId);
+    if (account.statsSource !== "self_reported") {
+      throw ApiError.badRequest(
+        "Stats for this account are imported from the platform and can’t be edited"
+      );
+    }
+
+    const link = parseFacebookProfileUrl(input.profileUrl);
+    if (!link)
+      throw ApiError.validation([
+        {
+          field: "profileUrl",
+          message:
+            "Enter the link to your Facebook profile, e.g. https://www.facebook.com/yourname",
+        },
+      ]);
+
+    // One public profile link can't be claimed by two creators
+    const claimed = await SocialAccount.findOne({
+      where: {
+        platform: account.platform,
+        profileUrl: { [Op.iLike]: link.profileUrl },
+        id: { [Op.ne]: account.id },
+      },
+    });
+    if (claimed)
+      throw ApiError.conflict(
+        "This Facebook profile is already listed by another creator"
+      );
+
+    const engagementRate = this.engagementRate(
+      input.followers,
+      input.avgLikes,
+      input.avgComments
+    );
+    await sequelize.transaction(async (transaction) => {
+      await account.update(
+        {
+          profileUrl: link.profileUrl,
+          // Username from the link when there is one; otherwise keep the Facebook name from login
+          handle: link.username ?? account.handle,
+          followers: input.followers,
+          following: input.following ?? 0,
+          postsCount: input.postsCount ?? 0,
+          avgViews: input.avgViews ?? 0,
+          avgLikes: input.avgLikes,
+          avgComments: input.avgComments,
+          engagementRate,
+          statsReportedAt: new Date(),
+        },
+        { transaction }
+      );
+      await SocialStatSnapshot.create(
+        {
+          socialAccountId: account.id,
+          followers: input.followers,
+          avgViews: input.avgViews ?? 0,
+          engagementRate,
+        },
+        { transaction }
+      );
+    });
+    await creatorService.recomputeAggregates(account.creatorProfileId);
+    return account;
   }
 
   async history(userId: string, accountId: string) {
@@ -204,14 +317,16 @@ export class SocialAccountService {
   /**
    * Retention rule (required by YouTube API policies and promised in the Privacy Policy):
    * platform data that could not be refreshed for 30 days — e.g. access was revoked — is deleted.
-   * The last successful sync is the newest stats snapshot.
+   * The last successful sync is the newest stats snapshot. Self-reported accounts hold the
+   * creator's own numbers (not platform data), so they are not purged here.
    */
   async purgeUnrefreshedAccounts(days = 30) {
     const [rows] = await sequelize.query(
       `SELECT sa.id, sa.creator_profile_id AS "creatorProfileId"
          FROM social_accounts sa
          LEFT JOIN LATERAL (SELECT MAX(captured_at) AS last_ok FROM social_stat_snapshots s WHERE s.social_account_id = sa.id) x ON true
-        WHERE COALESCE(x.last_ok, sa.created_at) < NOW() - make_interval(days => :days)`,
+        WHERE sa.stats_source = 'api'
+          AND COALESCE(x.last_ok, sa.created_at) < NOW() - make_interval(days => :days)`,
       { replacements: { days } }
     );
     const stale = rows as Array<{ id: string; creatorProfileId: string }>;
@@ -251,7 +366,18 @@ export class SocialAccountService {
       }
 
       const stats = await provider.fetchStats(accessToken);
-      console.log(stats, "stats");
+
+      // Self-reported: the login only refreshes the picture; the creator's numbers stay untouched
+      if (account.statsSource === "self_reported") {
+        await account.update({
+          avatarUrl: stats.avatarUrl,
+          syncStatus: "ok",
+          syncError: null,
+          lastSyncedAt: new Date(),
+        });
+        return account;
+      }
+
       const engagementRate = this.engagementRate(
         stats.followers,
         stats.avgLikes,
@@ -290,7 +416,9 @@ export class SocialAccountService {
         syncError:
           err instanceof ApiError
             ? err.message
-            : "Could not refresh stats. You may need to reconnect this account.",
+            : account.statsSource === "self_reported"
+              ? "Facebook login expired. Reconnect to keep your profile verified (your stats are kept)."
+              : "Could not refresh stats. You may need to reconnect this account.",
         lastSyncedAt: new Date(),
       });
       if (opts.throwOnError)

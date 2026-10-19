@@ -45,7 +45,6 @@ export const oauthCallback = async (req: Request, res: Response) => {
     return back({ error: "Missing authorization code", platform });
 
   try {
-    console.log(platform, code, state, "platform", "code", "state");
     await socialAccountService.handleCallback(platform, code, state);
     return back({ connected: platform });
   } catch (err) {
@@ -66,6 +65,16 @@ export const syncAccount = async (req: Request, res: Response) => {
   );
 };
 
+/** Creator-entered stats for platforms whose API doesn't share them (Facebook profile). */
+export const updateSelfReportedStats = async (req: Request, res: Response) => {
+  const account = await socialAccountService.updateSelfReportedStats(
+    req.user!.id,
+    String(req.params.id),
+    req.body
+  );
+  sendSuccess(res, account, { message: "Stats saved" });
+};
+
 export const disconnectAccount = async (req: Request, res: Response) => {
   await socialAccountService.disconnect(req.user!.id, String(req.params.id));
   sendSuccess(res, null, { message: "Account disconnected" });
@@ -84,6 +93,14 @@ export const instagramDataDeletion = async (req: Request, res: Response) => {
     req.body?.signed_request
   );
   res.json(result); // Meta expects exactly { url, confirmation_code }
+};
+
+/** Meta "Data Deletion Request" / "Deauthorize" callback for Facebook Login (profile). */
+export const facebookDataDeletion = async (req: Request, res: Response) => {
+  const result = await dataDeletionService.handleFacebookDeletion(
+    req.body?.signed_request
+  );
+  res.json(result);
 };
 
 export const deletionStatus = async (req: Request, res: Response) => {
