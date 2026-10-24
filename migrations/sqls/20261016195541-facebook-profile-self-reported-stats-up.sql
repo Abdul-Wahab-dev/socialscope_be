@@ -21,3 +21,6 @@ $$;
 ALTER TABLE social_accounts
   ADD COLUMN IF NOT EXISTS stats_source stats_source NOT NULL DEFAULT 'api',
   ADD COLUMN IF NOT EXISTS stats_reported_at TIMESTAMPTZ;   
+
+
+ALTER TABLE creator_profiles ADD COLUMN IF NOT EXISTS publish_consent_at TIMESTAMPTZ;

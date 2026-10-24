@@ -35,6 +35,9 @@ export function createMockProvider(platform: SocialPlatform): SocialProvider {
         refreshToken: `mock-refresh:${platform}:${userId}`,
         expiresAt: new Date(Date.now() + 30 * 86_400_000),
         platformUserId: `mock_${platform}_${userId}`,
+        // Facebook's deletion callback matches on the logged-in user's id
+        ownerPlatformUserId:
+          platform === "facebook" ? `mock_${platform}_${userId}` : undefined,
       };
     },
 

@@ -7,3 +7,5 @@ ALTER TABLE social_accounts
   DROP COLUMN IF EXISTS stats_source;
 
 DROP TYPE IF EXISTS stats_source;
+
+ALTER TABLE creator_profiles DROP COLUMN IF EXISTS publish_consent_at;

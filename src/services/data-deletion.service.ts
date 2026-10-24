@@ -32,7 +32,7 @@ export class DataDeletionService {
     if (!appSecret)
       throw new ApiError(
         503,
-        "Instagram app secret is not configured",
+        "Meta app secret is not configured",
         "PROVIDER_NOT_CONFIGURED"
       );
 
@@ -76,8 +76,9 @@ export class DataDeletionService {
   }
 
   /**
-   * Facebook Login callback: signed with the Meta APP secret, and `user_id` is the app-scoped
-   * Facebook USER id, so we delete every Page that user connected (matched on the owner id).
+   * Facebook Login callback: signed with the Facebook app secret; `user_id` is the app-scoped
+   * Facebook user id saved at login (owner_platform_user_id). Deletes that Facebook connection
+   * together with the stats the creator entered for it.
    */
   async handleFacebookDeletion(signedRequest: string | undefined) {
     const payload = this.parseMetaSignedRequest(

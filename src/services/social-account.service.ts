@@ -15,6 +15,8 @@ import { parseFacebookProfileUrl } from "../utils/facebook-url";
 import { creatorService } from "./creator.service";
 
 const REFRESH_BEFORE_EXPIRY_MS = 24 * 3_600_000;
+/** Platform data not refreshed for this long is deleted (keeps revocations under the 7-day limit). */
+export const UNREFRESHED_PURGE_DAYS = 5;
 
 export interface SelfReportedStatsInput {
   profileUrl: string;
@@ -315,12 +317,14 @@ export class SocialAccountService {
   }
 
   /**
-   * Retention rule (required by YouTube API policies and promised in the Privacy Policy):
-   * platform data that could not be refreshed for 30 days — e.g. access was revoked — is deleted.
+   * Retention rule (YouTube API policies III.D.2 / III.E.4, promised in the Privacy Policy):
+   * when access is revoked on the platform, stats can no longer be refreshed. Accounts with no
+   * successful refresh for UNREFRESHED_PURGE_DAYS are deleted. Stats refresh every 12 hours and
+   * this runs every 6, so revoked data is gone within 7 days of the revocation.
    * The last successful sync is the newest stats snapshot. Self-reported accounts hold the
    * creator's own numbers (not platform data), so they are not purged here.
    */
-  async purgeUnrefreshedAccounts(days = 30) {
+  async purgeUnrefreshedAccounts(days = UNREFRESHED_PURGE_DAYS) {
     const [rows] = await sequelize.query(
       `SELECT sa.id, sa.creator_profile_id AS "creatorProfileId"
          FROM social_accounts sa
@@ -418,7 +422,7 @@ export class SocialAccountService {
             ? err.message
             : account.statsSource === "self_reported"
               ? "Facebook login expired. Reconnect to keep your profile verified (your stats are kept)."
-              : "Could not refresh stats. You may need to reconnect this account.",
+              : `Could not refresh stats. Please reconnect: accounts that can’t be refreshed for ${UNREFRESHED_PURGE_DAYS} days are removed automatically.`,
         lastSyncedAt: new Date(),
       });
       if (opts.throwOnError)

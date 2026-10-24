@@ -5,14 +5,17 @@ import {
   type InferAttributes,
   type InferCreationAttributes,
   type NonAttribute,
-} from 'sequelize';
-import { sequelize } from '../configs/database';
-import type { SocialAccount } from './social-account.model';
-import type { RateCard } from './rate-card.model';
-import type { PortfolioItem } from './portfolio-item.model';
-import type { User } from './user.model';
+} from "sequelize";
+import { sequelize } from "../configs/database";
+import type { SocialAccount } from "./social-account.model";
+import type { RateCard } from "./rate-card.model";
+import type { PortfolioItem } from "./portfolio-item.model";
+import type { User } from "./user.model";
 
-export class CreatorProfile extends Model<InferAttributes<CreatorProfile>, InferCreationAttributes<CreatorProfile>> {
+export class CreatorProfile extends Model<
+  InferAttributes<CreatorProfile>,
+  InferCreationAttributes<CreatorProfile>
+> {
   declare id: CreationOptional<string>;
   declare userId: string;
   declare username: string;
@@ -28,6 +31,8 @@ export class CreatorProfile extends Model<InferAttributes<CreatorProfile>, Infer
   declare isListed: CreationOptional<boolean>;
   declare isFounding: CreationOptional<boolean>;
   declare listedAt: CreationOptional<Date | null>;
+  /** When the creator agreed to publish their profile and connected-account stats */
+  declare publishConsentAt: CreationOptional<Date | null>;
   declare totalFollowers: CreationOptional<number>;
   declare avgEngagementRate: CreationOptional<number>;
   declare minPriceCents: CreationOptional<number | null>;
@@ -44,28 +49,72 @@ export class CreatorProfile extends Model<InferAttributes<CreatorProfile>, Infer
 
 CreatorProfile.init(
   {
-    id: { type: DataTypes.UUID, defaultValue: DataTypes.UUIDV4, primaryKey: true },
+    id: {
+      type: DataTypes.UUID,
+      defaultValue: DataTypes.UUIDV4,
+      primaryKey: true,
+    },
     userId: { type: DataTypes.UUID, allowNull: false, unique: true },
     username: { type: DataTypes.CITEXT, allowNull: false, unique: true },
     displayName: { type: DataTypes.STRING(80), allowNull: false },
     bio: { type: DataTypes.TEXT, allowNull: true },
     avatarUrl: { type: DataTypes.STRING(1000), allowNull: true },
-    categories: { type: DataTypes.ARRAY(DataTypes.STRING(40)), allowNull: false, defaultValue: [] },
-    languages: { type: DataTypes.ARRAY(DataTypes.STRING(40)), allowNull: false, defaultValue: [] },
+    categories: {
+      type: DataTypes.ARRAY(DataTypes.STRING(40)),
+      allowNull: false,
+      defaultValue: [],
+    },
+    languages: {
+      type: DataTypes.ARRAY(DataTypes.STRING(40)),
+      allowNull: false,
+      defaultValue: [],
+    },
     country: { type: DataTypes.CHAR(2), allowNull: true },
     city: { type: DataTypes.STRING(80), allowNull: true },
     contactEmail: { type: DataTypes.STRING(255), allowNull: true },
-    isAvailable: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: true },
-    isListed: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false },
-    isFounding: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false },
+    isAvailable: {
+      type: DataTypes.BOOLEAN,
+      allowNull: false,
+      defaultValue: true,
+    },
+    isListed: {
+      type: DataTypes.BOOLEAN,
+      allowNull: false,
+      defaultValue: false,
+    },
+    isFounding: {
+      type: DataTypes.BOOLEAN,
+      allowNull: false,
+      defaultValue: false,
+    },
     listedAt: { type: DataTypes.DATE, allowNull: true },
-    totalFollowers: { type: DataTypes.BIGINT, allowNull: false, defaultValue: 0 },
-    avgEngagementRate: { type: DataTypes.DECIMAL(6, 2), allowNull: false, defaultValue: 0, get() { return Number(this.getDataValue('avgEngagementRate') ?? 0); } },
+    publishConsentAt: { type: DataTypes.DATE, allowNull: true },
+    totalFollowers: {
+      type: DataTypes.BIGINT,
+      allowNull: false,
+      defaultValue: 0,
+    },
+    avgEngagementRate: {
+      type: DataTypes.DECIMAL(6, 2),
+      allowNull: false,
+      defaultValue: 0,
+      get() {
+        return Number(this.getDataValue("avgEngagementRate") ?? 0);
+      },
+    },
     minPriceCents: { type: DataTypes.INTEGER, allowNull: true },
-    profileViews: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 0 },
-    searchAppearances: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 0 },
+    profileViews: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+      defaultValue: 0,
+    },
+    searchAppearances: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+      defaultValue: 0,
+    },
     createdAt: DataTypes.DATE,
     updatedAt: DataTypes.DATE,
   },
-  { sequelize, tableName: 'creator_profiles', modelName: 'CreatorProfile' },
+  { sequelize, tableName: "creator_profiles", modelName: "CreatorProfile" }
 );
